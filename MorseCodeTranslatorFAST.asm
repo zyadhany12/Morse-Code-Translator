@@ -193,7 +193,22 @@
     WORD_COUNT      DW 0
     DOT_COUNT       DW 0
     DASH_COUNT      DW 0
-    IN_WORD_FLAG    DB 0
+    IN_WORD_FLAG    DB 0    
+    
+    TEXT_INPUT_BUF  DB 61 DUP(0)
+    MORSE_OUTPUT_BUF DB 256 DUP(0)
+
+    TEXT_INPUT_LEN  DW 0
+    MORSE_OUTPUT_LEN DW 0
+
+    T2M_HEADER_STR  DB 'Text to Morse Code:', 0
+    TEXT_IN_LBL     DB 'Text : ', 0
+    MORSE_OUT_LBL   DB 'Morse: ', 0         
+    
+    T2M_CONT_STR    DB  'Press R to translate again, or any key to go back to menu: ',0
+
+    T2M_ERR_EMPTY   DB 'Error: Empty input! Please enter some text.', 0
+    T2M_ERR_FULL    DB 'Error: Input full (max 60 characters)!', 0
 
 .CODE
 MAIN PROC
@@ -228,7 +243,9 @@ PROMPT_LOOP:
     CALL READ_AND_VALIDATE_KEY
     CMP AL, 00h                 ; 00h: Invalid key indicator from validation
     JE PROMPT_LOOP
-
+    
+    CMP AL, '1'
+    JE RUN_OPTION_1
     CMP AL, '2'
     JE RUN_OPTION_2
     CMP AL, '3'
@@ -1037,6 +1054,321 @@ STR_DONE:
     POP BX
     POP AX
     RET
-PRINT_COLOR_STR ENDP
+PRINT_COLOR_STR ENDP    
+
+RUN_OPTION_1:
+    CALL TEXT_TO_MORSE_SCREEN
+    JMP MAIN_MENU_START
+                             
+TEXT_TO_MORSE_SCREEN PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    
+    T2M_RESTART:
+        CALL CLEAR_FULL_SCREEN
+        
+        MOV DH, 1
+        MOV DL, 29
+        MOV BL, 0BH
+        LEA SI, TITLE_STR
+        CALL PRINT_COLOR_STR
+        
+        MOV DH, 2
+        MOV DL, 29
+        MOV BL, 07H
+        LEA SI, SUBTITLE_STR
+        CALL PRINT_COLOR_STR
+        
+        MOV DH, 5
+        MOV DL, 4
+        MOV BL, 09h
+        LEA SI, T2M_HEADER_STR
+        CALL PRINT_COLOR_STR   
+        
+        MOV DH, 8
+        CALL DRAW_MENU_BOX
+        
+        MOV DH, 9
+        MOV DL, 6
+        MOV BL, 1BH
+        LEA SI, TEXT_IN_LBL
+        CALL PRINT_COLOR_STR
+        
+        MOV DH, 12
+        CALL DRAW_MENU_BOX
+        
+        MOV DH, 13
+        MOV DL, 6
+        MOV BL, 1BH
+        LEA SI, MORSE_OUT_LBL
+        CALL PRINT_COLOR_STR
+        
+        CALL READ_TEXT_INPUT
+        CALL TRANSLATE_TEXT_BUFFER
+        CALL DISPLAY_T2M_RESULT
+                        
+        MOV DH, 23
+        MOV DL, 4
+        MOV BL, 07h
+        LEA SI, T2M_CONT_STR
+        CALL PRINT_COLOR_STR
+    
+        MOV AH, 00H              ;BIOS to read keyboard
+        INT 16H                  ;BIOS Keyboard interrupt
+        
+        CMP AL, 'R'
+        JE T2M_RESTART
+        
+        CMP AL, 'r'
+        JE T2M_RESTART
+        
+        POP SI
+        POP DX
+        POP CX
+        POP BX
+        POP AX
+        
+        RET
+        
+TEXT_TO_MORSE_SCREEN ENDP
+
+READ_TEXT_INPUT PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    
+    MOV [TEXT_INPUT_LEN], 0
+    
+    READ_TEXT_LOOP:
+        MOV AX, [TEXT_INPUT_LEN]
+        
+        MOV DH, 9
+        MOV DL, 13
+        ADD DL, AL
+        
+        CALL SET_CURSOR
+        
+        MOV AH, 00H                  ;BIOS to read keyboard
+        INT 16H                      ;BIOS Keyboard interrupt
+        
+        CMP AL, 0DH                 ;Checks if ENTER has been pressed
+        JE TEXT_ENTER_PRESSED
+        
+        CMP AL, 08H                 ;Checks if BACKSPACE has been pressed
+        JE TEXT_BACKSPACE
+        
+        CMP [TEXT_INPUT_LEN], 60
+        JAE TEXT_BUFFER_FULL
+        
+        ;To save the character
+        MOV SI, [TEXT_INPUT_LEN]
+        MOV TEXT_INPUT_BUF[SI], AL  
+        
+        ;To display the character
+        MOV DH, 9
+        MOV DL, 13
+        ADD DL, BYTE PTR [TEXT_INPUT_LEN]
+        
+        CALL SET_CURSOR
+        
+        MOV AH, 09H
+        MOV BH, 00H
+        MOV BL, 1BH
+        MOV CX, 1
+        INT 10H                     ;BIOS Video Interrupt
+        
+        INC [TEXT_INPUT_LEN]
+        
+        JMP READ_TEXT_LOOP
+        
+    TEXT_BACKSPACE:      
+    
+        CMP [TEXT_INPUT_LEN], 0
+        JE READ_TEXT_LOOP
+        
+        DEC [TEXT_INPUT_LEN]
+        
+        MOV AX, [TEXT_INPUT_LEN]
+        
+        MOV DH, 9
+        MOV DL, 13
+        ADD DL, AL
+        
+        MOV AH, 09H
+        MOV AL, ' '
+        MOV BH, 00H
+        MOV BL, 1BH
+        MOV CX, 1
+        INT 10H
+        
+        JMP READ_TEXT_LOOP
+        
+    TEXT_BUFFER_FULL:   
+        
+        JMP READ_TEXT_LOOP
+    
+    TEXT_ENTER_PRESSED:
+        
+        CMP [TEXT_INPUT_LEN], 0
+        JE READ_TEXT_LOOP
+        
+        MOV SI, [TEXT_INPUT_LEN]
+        MOV TEXT_INPUT_BUF[SI], 0
+        
+        
+        POP SI
+        POP DX
+        POP CX
+        POP BX
+        POP AX
+        
+        RET
+        
+READ_TEXT_INPUT ENDP   
+
+TRANSLATE_TEXT_BUFFER PROC
+    
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    PUSH DI
+    
+    MOV [MORSE_OUTPUT_LEN], 0
+    
+    LEA SI, TEXT_INPUT_BUF
+    LEA DI, MORSE_OUTPUT_BUF
+    
+    TEXT_TRANSLATE_LOOP:
+        
+        MOV AL, [SI]
+        
+        CMP AL, 00H
+        JE TEXT_TRANSLATE_DONE
+        
+        CMP AL, ' '
+        JE TEXT_WORD_SPACE
+        
+        CMP AL, 'a'
+        JB TEXT_GET_MORSE
+        
+        CMP AL, 'z'
+        JA TEXT_GET_MORSE
+        
+        SUB AL, 20H
+        
+    TEXT_GET_MORSE:
+        
+        XOR BX, BX
+        MOV BL, AL
+        
+        SHL BX, 1
+        
+        MOV BX, MORSE_CODE[BX]
+        
+        CMP BX, 0
+        JE TEXT_UNKNOWN_CHAR
+        
+    TEXT_COPY_MORSE:
+        
+        MOV AL, [BX]
+        
+        CMP AL, 0
+        JE TEXT_MORSE_END
+        
+        MOV [DI], AL
+        INC DI
+        INC [MORSE_OUTPUT_LEN]
+        
+        INC BX
+        JMP TEXT_COPY_MORSE
+        
+    TEXT_MORSE_END:
+        
+        MOV BYTE PTR [DI], ' '
+        INC DI
+        INC [MORSE_OUTPUT_LEN]
+        
+        INC SI
+        JMP TEXT_TRANSLATE_LOOP
+        
+    TEXT_WORD_SPACE:
+        
+        CMP DI, OFFSET MORSE_OUTPUT_BUF
+        JE TEXT_SKIP_WORD_SPACE
+        
+        DEC DI
+        DEC [MORSE_OUTPUT_LEN]
+        
+        MOV BYTE PTR [DI], '/'
+        INC DI
+        INC [MORSE_OUTPUT_LEN]
+        
+        MOV BYTE PTR [DI], ' '
+        INC DI
+        INC [MORSE_OUTPUT_LEN]
+        
+    TEXT_SKIP_WORD_SPACE:
+        
+        INC SI
+        JMP TEXT_TRANSLATE_LOOP
+        
+    TEXT_UNKNOWN_CHAR:
+    
+        INC SI
+        JMP TEXT_TRANSLATE_LOOP
+        
+    TEXT_TRANSLATE_DONE:
+        
+        CMP DI, OFFSET MORSE_OUTPUT_BUF
+        JE TEXT_OUTPUT_EMPTY
+        
+        DEC DI
+        
+    TEXT_OUTPUT_EMPTY:
+    
+        MOV BYTE PTR [DI], 0
+        
+        
+        POP DI
+        POP SI
+        POP DX
+        POP CX
+        POP BX
+        POP AX
+        
+        RET
+        
+TRANSLATE_TEXT_BUFFER ENDP 
+
+DISPLAY_T2M_RESULT PROC
+
+    PUSH AX
+    PUSH BX
+    PUSH DX
+    PUSH SI
+
+    MOV DH, 13
+    MOV DL, 13
+    MOV BL, 1Bh
+
+    LEA SI, MORSE_OUTPUT_BUF
+    CALL PRINT_COLOR_STR
+
+    POP SI
+    POP DX
+    POP BX
+    POP AX
+
+    RET
+
+DISPLAY_T2M_RESULT ENDP
+        
 
 END MAIN
