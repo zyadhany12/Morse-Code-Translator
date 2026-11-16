@@ -1028,29 +1028,35 @@ SET_CURSOR ENDP
 PRINT_COLOR_STR PROC
     PUSH AX
     PUSH BX
-    PUSH CX
     PUSH DX
+    PUSH DI
     PUSH SI
+    PUSH ES
 
-NEXT_CHAR:
-    MOV AL, [SI]
-    CMP AL, 00h                 ; 00h: Check for null string terminator
-    JE STR_DONE
+    MOV AX, 0B800h
+    MOV ES, AX                  ; Point ES to VGA text video memory
 
-    CALL SET_CURSOR
-    MOV AH, 09h                 ; 09h: BIOS write character and attribute
-    MOV BH, 00h                 ; 00h: Video page 0
-    MOV CX, 1
-    INT 10h                     ; 10h: BIOS video interrupt
+    ; Calculate offset: DI = (Row * 80 + Col) * 2
+    MOV AL, 80
+    MUL DH                      ; AX = Row * 80
+    XOR DH, DH
+    ADD AX, DX                  ; AX = Row * 80 + Col
+    SHL AX, 1                   ; Multiply by 2 (2 bytes per screen cell)
+    MOV DI, AX
 
-    INC SI
-    INC DL
-    JMP NEXT_CHAR
+    MOV AH, BL                  ; Put color attribute in high byte
+VRAM_LOOP:
+    LODSB                       ; Load next char from DS:SI into AL and increment SI
+    CMP AL, 00h                 ; Check for null terminator
+    JE VRAM_DONE
+    STOSW                       ; Write AX (Attr:Char) to ES:DI and advance DI by 2
+    JMP VRAM_LOOP
 
-STR_DONE:
+VRAM_DONE:
+    POP ES
     POP SI
+    POP DI
     POP DX
-    POP CX
     POP BX
     POP AX
     RET
