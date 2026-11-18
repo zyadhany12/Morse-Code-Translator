@@ -1443,19 +1443,19 @@ VISUAL_LOOP:
 
 DO_DOT:
     CALL DRAW_GREEN_BLOCK
-    MOV BX, 3                 ; 200ms delay for a dot
+    MOV BX, 3                 
     CALL DELAY
     CALL DRAW_BLUE_BLOCK
-    MOV BX, 10                 ; 200ms gap between symbols
+    MOV BX, 10                 
     CALL DELAY
     JMP NEXT_CHAR
 
 DO_DASH:
     CALL DRAW_GREEN_BLOCK
-    MOV BX, 15                 ; 600ms delay for a dash (3x dot length)
+    MOV BX, 15                 
     CALL DELAY
     CALL DRAW_BLUE_BLOCK
-    MOV BX, 10                 ; 200ms gap between symbols
+    MOV BX, 10                 
     CALL DELAY
     JMP NEXT_CHAR
 
