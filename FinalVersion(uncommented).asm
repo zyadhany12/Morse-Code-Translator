@@ -645,7 +645,26 @@ FINISH_LETTER:
     MOV AL, MORSE_TREE[BX]
     CMP AL, 00h
     JNE STORE_DECODED_CHAR
-    MOV AL, '?'
+    lea si, invalid_morse                     ; Point SI to the start of the string
+
+next_c:
+    mov al, [si]                    ; Move ONE character from memory into AL
+    cmp al, 0                       ; Check if we reached the end (0)
+    je done                         ; If 0, stop
+
+    
+    mov ah, 0Eh
+    int 10h
+
+    inc si                          ; Move pointer to the next character
+    jmp next_c
+
+done:
+    mov cx, 000Fh                   ; High word of microseconds
+    mov dx, 4240h                   ; Low word of microseconds
+    mov ah, 86h                     ; BIOS wait function
+    int 15h
+    ret
 
 STORE_DECODED_CHAR:
     MOV [DI], AL
