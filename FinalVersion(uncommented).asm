@@ -180,6 +180,7 @@
     M2C_ERR_EMPTY   DB 'Error 1: Empty input! Type Morse code (. or -) first.', 0
     M2C_ERR_KEY     DB 'Error 2: Invalid key! Use only . - / and Space.      ', 0
     M2C_ERR_FULL    DB 'Error 3: Input full (max 60)! Press Enter to decode. ', 0
+    invalid_morse   DB ' [invalid char] ', 0
 
     MORSE_INPUT_BUF DB 61 DUP(0)
     TEXT_OUTPUT_BUF DB 61 DUP(0)
