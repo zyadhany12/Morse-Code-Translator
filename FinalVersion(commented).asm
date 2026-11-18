@@ -192,6 +192,7 @@
     M2C_ERR_EMPTY   DB 'Error 1: Empty input! Type Morse code (. or -) first.', 0
     M2C_ERR_KEY     DB 'Error 2: Invalid key! Use only . - / and Space.      ', 0
     M2C_ERR_FULL    DB 'Error 3: Input full (max 60)! Press Enter to decode. ', 0
+    invalid_morse   DB ' [invalid char] ', 0
 
     ; Data buffers
     MORSE_INPUT_BUF DB 61 DUP(0)         ; Buffer for typing morse code
@@ -680,7 +681,26 @@ FINISH_LETTER:
     MOV AL, MORSE_TREE[BX]      ; Retrieve resolved char from Tree
     CMP AL, 00h
     JNE STORE_DECODED_CHAR
-    MOV AL, '?'                 ; '?' if invalid sequence was typed
+    lea si, invalid_morse                     ; Point SI to the start of the string
+
+next_c:
+    mov al, [si]                    ; Move ONE character from memory into AL
+    cmp al, 0                       ; Check if we reached the end (0)
+    je done                         ; If 0, stop
+
+    
+    mov ah, 0Eh
+    int 10h
+
+    inc si                          ; Move pointer to the next character
+    jmp next_c
+
+done:
+    mov cx, 000Fh                   ; High word of microseconds
+    mov dx, 4240h                   ; Low word of microseconds
+    mov ah, 86h                     ; BIOS wait function
+    int 15h
+    ret            
 
 STORE_DECODED_CHAR:
     MOV [DI], AL                ; Store in output buffer
