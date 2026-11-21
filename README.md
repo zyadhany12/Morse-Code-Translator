@@ -1,36 +1,59 @@
 # Morse Code Translator — 8086 Assembly Edition
 
-A bidirectional Text-to-Morse and Morse-to-Text translator written in 16-bit 8086 Assembly (`.MODEL SMALL`). It features a custom 80×25 16-color text user interface rendered directly to VGA video memory (`0B800h`), real-time input validation, live translation statistics, and a visual LED playback simulator.
+A bidirectional **Text-to-Morse** and **Morse-to-Text** translator written in 16-bit 8086 Assembly (`.MODEL SMALL`, real-mode DOS). It combines BIOS interrupts (`INT 10h`, `INT 16h`, `INT 21h`) with direct VGA text-memory writes (`0B800h`) to deliver a custom 80×25 16-color TUI, real-time keystroke validation, live translation statistics, and an on-screen LED playback simulator.
+
+---
+
+## Table of Contents
+
+1. [Features](#features)
+2. [UI Layout Mockups](#ui-layout-mockups)
+3. [Memory Model & Data Layout](#memory-model--data-layout)
+4. [Algorithms & Data Structures](#algorithms--data-structures)
+5. [VGA Text Memory (`0B800h`) & Color Palette](#vga-text-memory-0b800h--color-palette)
+6. [LED Simulation & Timing Calibration](#led-simulation--timing-calibration)
+7. [Input Validation & Error Handling](#input-validation--error-handling)
+8. [Supported Character Set](#supported-character-set)
+9. [Procedure & Macro Reference](#procedure--macro-reference)
+10. [System Interrupts Used](#system-interrupts-used)
+11. [Build & Run Instructions](#build--run-instructions)
+12. [Usage Walkthrough](#usage-walkthrough)
+13. [Known Limitations](#known-limitations)
 
 ---
 
 ## Features
 
-* **Text to Morse Code:** Translates up to 60 characters of alphanumeric text and punctuation into International Morse Code (`/` separates words, space separates letters).
-* **Morse Code to Text:** Decodes up to 60 characters of Morse input (`.`, `-`, space, `/`) back into text, flagging unrecognized sequences with `*` and an inline warning.
-* **Visual LED Playback:** Simulates an on-screen LED indicator (a 6-cell green block on Row 5) that blinks out the translated Morse sequence in Text-to-Morse mode with distinct timings for dots, dashes, and spacing.
-* **Live Statistics Dashboard:** Tracks and displays **Characters**, **Words**, **Dots**, and **Dashes** for every translation.
-* **Real-Time Input Validation:** Enforces character whitelists, 60-character input limits, backspace editing, and non-empty submission, displaying contextual error messages on Row 24 that automatically clear on the next valid keystroke.
-* **Direct VRAM Rendering:** Uses memory-mapped writes to segment `0B800h` alongside BIOS `INT 10h` calls for fast, flicker-free UI rendering.
+* **Bidirectional Translation:**
+  * **Text → Morse:** Encodes up to 60 characters of letters, digits, and 18 punctuation symbols into International Morse Code (` ` between letters, `/` between words).
+  * **Morse → Text:** Decodes up to 60 characters of `.`, `-`, ` `, and `/` back into uppercase text using a 256-byte heap-indexed binary tree.
+* **Visual LED Playback:** Blinks a 6-cell green indicator block on Row 5, Column 37 to visually transmit the encoded Morse output with distinct durations for dots, dashes, inter-symbol gaps, letter spaces, and word spaces.
+* **Live Statistics Bar:** Computes and displays **Characters**, **Words**, **Dots**, and **Dashes** for every translation in both modes.
+* **Real-Time Input Validation:** Rejects unsupported characters on the fly, enforces buffer bounds, supports `Backspace` editing with live VRAM erasure, and auto-clears Row 24 error banners on the next valid keystroke.
+* **Direct VRAM Rendering:** Writes characters and color attributes directly to segment `0B800h` for instant UI updates without cursor flicker.
 
 ---
 
-## Architecture & Data Structures
+## UI Layout Mockups
 
-### 1. Text-to-Morse: O(1) Direct-Mapped Lookup Table (`MORSE_CODE`)
-Each ASCII character (`0–127`) maps directly to a 16-bit word pointer in `MORSE_CODE` via `Index = ASCII × 2` (`SHL BX, 1`).
-* Lowercase letters (`a`–`z`) are normalized to uppercase (`SUB AL, 20h`) before lookup, though lowercase entries are also populated in the table.
-* Unmapped characters hold `0`, allowing instant validation during typing (`READ_TEXT_INPUT`) and translation (`TRANSLATE_TEXT_BUFFER`).
-* Multiple consecutive spaces or trailing spaces are collapsed using `IN_WORD_FLAG` so they never produce `//` or a dangling `/`.
-
-### 2. Morse-to-Text: O(L) Heap-Indexed Binary Tree (`MORSE_TREE`)
-Decoding uses a 256-byte array representing a binary tree rooted at index `1`:
-* **Dot (`.`):** Moves to the left child (`BX = BX × 2` via `SHL BX, 1`).
-* **Dash (`-`):** Moves to the right child (`BX = BX × 2 + 1` via `SHL BX, 1` + `INC BX`).
-* **Bounds Safety:** Any sequence whose index exceeds `255` is clamped to `255` (which holds `0`), safely resolving to the invalid-character fallback (`*`) without out-of-bounds memory access.
-
-### 3. Direct VGA Text Memory (`0B800h`)
-The 80×25 text screen is addressed directly at segment `0B800h`, where each cell occupies 2 bytes (low byte = ASCII character, high byte = color attribute):
+### Main Menu (80×25 VGA Mode `03h`)
 
 ```text
-Byte Offset = (Row × 160) + (Column × 2)
+Row 01:                             MORSE CODE TRANSLATOR
+Row 02:                             8086 ASSEMBLY EDITION
+Row 03:     ────────────────────────────────────────────────────────────────────────
+Row 05:     Select operation:
+Row 07:     ┌──────────────────────────────────────────────────────────────────────┐
+Row 08:     │ 1. Text to Morse Code                                                │
+Row 09:     └──────────────────────────────────────────────────────────────────────┘
+Row 11:     ┌──────────────────────────────────────────────────────────────────────┐
+Row 12:     │ 2. Morse Code to Text                                                │
+Row 13:     └──────────────────────────────────────────────────────────────────────┘
+Row 15:     ┌──────────────────────────────────────────────────────────────────────┐
+Row 16:     │ 3. Clear Screen                                                      │
+Row 17:     └──────────────────────────────────────────────────────────────────────┘
+Row 19:     ┌──────────────────────────────────────────────────────────────────────┐
+Row 20:     │ 4. Exit                                                              │
+Row 21:     └──────────────────────────────────────────────────────────────────────┘
+Row 23:     Enter your choice: _
+Row 24:     [Row 24 reserved for red error banners]
