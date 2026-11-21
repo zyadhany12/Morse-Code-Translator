@@ -1,3 +1,23 @@
+SAVE_STATE MACRO
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    PUSH DI
+    PUSH ES
+ENDM
+
+LOAD_STATE MACRO
+    POP ES
+    POP DI
+    POP SI
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+ENDM 
+    
 .MODEL SMALL                ; Defines memory model: 1 code segment, 1 data segment
 .STACK 100h                 ; 100h: Allocate 256 bytes for stack segment
 
@@ -231,7 +251,8 @@
     DOT_COUNT       DW 0
     DASH_COUNT      DW 0
     IN_WORD_FLAG    DB 0
-    HAS_ERROR       DB 0    
+    HAS_ERROR       DB 0 
+    BAD_MORSE       DB 0   
     
     ; Text to Morse UI & buffers
     TEXT_INPUT_BUF   DB 61 DUP(0)
@@ -245,6 +266,7 @@
     T2M_CONT_STR    DB 'Press R to translate again, or any key to go back to menu: ', 0
     T2M_ERR_EMPTY   DB 'Error: Empty input! Please enter some text.          ', 0
     T2M_ERR_FULL    DB 'Error: Input full (max 60 characters)!               ', 0
+    T2M_NOT_EXIST   DB 'Error: Unsupported character!                        ', 0
 
 .CODE
 ; =============================================================================
@@ -264,7 +286,7 @@ MAIN_MENU_START:
 
     ; Prompt the user for input
     MOV DH, 23                  ; Row 23
-    MOV DL, 4                   ; Column 4
+    MOV DL, 4                   ; Column 4                                                                                                                      
     MOV BL, 07h                 ; Attribute: Light gray text (07h)
     LEA SI, PROMPT_STR          ; Load prompt string address
     CALL PRINT_COLOR_STR
@@ -343,12 +365,7 @@ DELAY ENDP
 ; MORSE TO TEXT LOGIC
 ; =============================================================================
 MORSE_TO_TEXT_SCREEN PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    PUSH SI
-
+    SAVE_STATE
 M2C_RESTART:
     CALL DRAW_M2C_INTERFACE     ; Draw UI boundaries and static text
     CALL READ_MORSE_INPUT       ; Read keyboard input into MORSE_INPUT_BUF
@@ -370,22 +387,13 @@ M2C_RESTART:
     CMP AL, 'r'
     JE M2C_RESTART
 
-    POP SI                      ; Otherwise, exit back to main menu
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
 MORSE_TO_TEXT_SCREEN ENDP
 
 DRAW_M2C_INTERFACE PROC
     ; Pushes registers to save state
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    PUSH SI
-
+    SAVE_STATE
     CALL CLEAR_FULL_SCREEN
 
     ; Print headers
@@ -461,23 +469,12 @@ DRAW_M2C_INTERFACE PROC
     LEA SI, STAT_DASH_LBL
     CALL PRINT_COLOR_STR
 
-    POP SI
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
 DRAW_M2C_INTERFACE ENDP
 
 READ_MORSE_INPUT PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    PUSH DI
-    PUSH SI
-    PUSH ES
-
+    SAVE_STATE
     MOV AX, 0B800h              ; Point ES to VGA memory
     MOV ES, AX
     MOV [INPUT_LEN], 00h        ; Reset input length
@@ -566,13 +563,7 @@ HANDLE_ENTER_KEY:
     MOV MORSE_INPUT_BUF[SI], 00h ; Null-terminate the string for processing
     CALL CLEAR_ERR_IF_NEEDED
 
-    POP ES
-    POP SI
-    POP DI
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
 
 SHOW_EMPTY_MORSE_ERR:
@@ -588,10 +579,7 @@ READ_MORSE_INPUT ENDP
 CLEAR_ERR_IF_NEEDED PROC
     CMP [HAS_ERROR], 00h
     JE SKIP_ERR_CLEAR
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
+    SAVE_STATE
     ; Use INT 10h AH=06h to clear just the error message row
     MOV AH, 06h
     MOV AL, 00h
@@ -600,21 +588,16 @@ CLEAR_ERR_IF_NEEDED PROC
     MOV DX, 183Ah               ; (Row 24, Col 58)
     INT 10h
     MOV [HAS_ERROR], 00h
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
+    
 SKIP_ERR_CLEAR:
     RET
 CLEAR_ERR_IF_NEEDED ENDP
 
 TRANSLATE_MORSE_BUFFER PROC
-    PUSH AX
-    PUSH BX
-    PUSH SI
-    PUSH DI
-
-    ; Reset all statistics counters
+    SAVE_STATE
+    ; Reset all statistics counters 
+    MOV [BAD_MORSE], 00h
     MOV [CHAR_COUNT], 00h       
     MOV [WORD_COUNT], 00h       
     MOV [DOT_COUNT], 00h
@@ -681,26 +664,8 @@ FINISH_LETTER:
     MOV AL, MORSE_TREE[BX]      ; Retrieve resolved char from Tree
     CMP AL, 00h
     JNE STORE_DECODED_CHAR
-    lea si, invalid_morse                     ; Point SI to the start of the string
-
-next_c:
-    mov al, [si]                    ; Move ONE character from memory into AL
-    cmp al, 0                       ; Check if we reached the end (0)
-    je done                         ; If 0, stop
-
-    
-    mov ah, 0Eh
-    int 10h
-
-    inc si                          ; Move pointer to the next character
-    jmp next_c
-
-done:
-    mov cx, 000Fh                   ; High word of microseconds
-    mov dx, 4240h                   ; Low word of microseconds
-    mov ah, 86h                     ; BIOS wait function
-    int 15h
-    ret            
+    MOV AL, '*'                    ; Point SI to the start of the string
+    MOV [BAD_MORSE], 1
 
 STORE_DECODED_CHAR:
     MOV [DI], AL                ; Store in output buffer
@@ -716,20 +681,13 @@ STORE_DECODED_CHAR:
 
 TRANSLATE_FINISH:
     MOV BYTE PTR [DI], 00h      ; Null terminate output
-
-    POP DI
-    POP SI
-    POP BX
-    POP AX
+    
+    LOAD_STATE
     RET
 TRANSLATE_MORSE_BUFFER ENDP
 
 DISPLAY_M2C_RESULTS PROC
-    PUSH AX
-    PUSH BX
-    PUSH DX
-    PUSH SI
-
+    SAVE_STATE
     ; Print Translated Text string
     MOV DH, 12
     MOV DL, 13
@@ -764,11 +722,16 @@ DISPLAY_M2C_RESULTS PROC
     MOV DL, 60
     MOV BL, 1Bh                 
     CALL PRINT_NUMBER
-
-    POP SI
-    POP DX
-    POP BX
-    POP AX
+    
+    CMP [BAD_MORSE], 0         
+    JE NO_BAD
+    MOV DH, 22
+    MOV DL, 4
+    MOV BL, 0Ch
+    LEA SI, invalid_morse
+    CALL PRINT_COLOR_STR
+NO_BAD:
+    LOAD_STATE
     RET
 DISPLAY_M2C_RESULTS ENDP
 
@@ -777,14 +740,7 @@ DISPLAY_M2C_RESULTS ENDP
 ; Given AX = number, prints digits using direct VRAM writes.
 ; =============================================================================
 PRINT_NUMBER PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    PUSH DI
-    PUSH SI
-    PUSH ES
-
+    SAVE_STATE
     MOV CX, 0B800h              ; Set ES to VRAM Segment
     MOV ES, CX
 
@@ -817,14 +773,8 @@ PRINT_DIGIT_LOOP:
     MOV AL, DL
     STOSW                       ; Write AL (char) and AH (color) to ES:[DI]
     LOOP PRINT_DIGIT_LOOP
-
-    POP ES
-    POP SI
-    POP DI
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
+    
     RET
 PRINT_NUMBER ENDP
 
@@ -832,12 +782,7 @@ PRINT_NUMBER ENDP
 ; UI DRAWING ROUTINES
 ; =============================================================================
 DRAW_MAIN_GUI PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    PUSH SI
-
+    SAVE_STATE
     CALL CLEAR_FULL_SCREEN
 
     MOV DH, 1
@@ -903,23 +848,13 @@ DRAW_BOXES_LOOP:
     LEA SI, OPT4_STR
     CALL PRINT_COLOR_STR
 
-    POP SI
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
 DRAW_MAIN_GUI ENDP
 
 ; Draws a box with borders based on the Row provided in DH
 DRAW_MENU_BOX PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    PUSH DI
-    PUSH ES
-
+    SAVE_STATE
     ; Clear/Fill the specific window area with Blue (19h)
     MOV AH, 06h                 ; Scroll/clear window
     MOV AL, 00h                 ; 0 = clear entire window
@@ -961,12 +896,7 @@ DRAW_MENU_BOX PROC
     MOV WORD PTR ES:[DI+328], 19C0h   ; Bottom Left corner (+)
     MOV WORD PTR ES:[DI+470], 19D9h   ; Bottom Right corner (+)
 
-    POP ES
-    POP DI
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
 DRAW_MENU_BOX ENDP
 
@@ -1030,20 +960,14 @@ VALIDATE_DONE:
 READ_AND_VALIDATE_KEY ENDP
 
 CLEAR_FULL_SCREEN PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
+    SAVE_STATE
     MOV AH, 06h                 ; Scroll window up function
     MOV AL, 00h                 ; Lines to scroll (0 = clear)
     MOV BH, 07h                 ; Fill attribute (black background, gray text)
     MOV CX, 0000h               ; (Row 0, Col 0)
     MOV DX, 184Fh               ; (Row 24, Col 79)
     INT 10h                     
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
 CLEAR_FULL_SCREEN ENDP
 
@@ -1059,13 +983,7 @@ SET_CURSOR PROC
 SET_CURSOR ENDP
 
 PRINT_COLOR_STR PROC
-    PUSH AX
-    PUSH BX
-    PUSH DX
-    PUSH DI
-    PUSH SI
-    PUSH ES
-
+    SAVE_STATE
     MOV AX, 0B800h
     MOV ES, AX                  ; ES -> VGA memory
 
@@ -1087,12 +1005,7 @@ VRAM_LOOP:
     JMP VRAM_LOOP
 
 VRAM_DONE:
-    POP ES
-    POP SI
-    POP DI
-    POP DX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
 PRINT_COLOR_STR ENDP    
                              
@@ -1100,12 +1013,8 @@ PRINT_COLOR_STR ENDP
 ; TEXT TO MORSE LOGIC
 ; =============================================================================
 TEXT_TO_MORSE_SCREEN PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    PUSH SI
-    
+    SAVE_STATE
+
     T2M_RESTART:
         CALL CLEAR_FULL_SCREEN
         
@@ -1200,24 +1109,13 @@ TEXT_TO_MORSE_SCREEN PROC
         CMP AL, 'r'
         JE T2M_RESTART
         
-        POP SI
-        POP DX
-        POP CX
-        POP BX
-        POP AX
-        
+        LOAD_STATE
         RET
         
 TEXT_TO_MORSE_SCREEN ENDP
 
 READ_TEXT_INPUT PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    PUSH DI
-    PUSH SI
-    PUSH ES
+    SAVE_STATE
 
     MOV AX, 0B800h
     MOV ES, AX
@@ -1241,6 +1139,24 @@ READ_TEXT_LOOP:
 
     CMP AL, 20H                 ; Ignore control characters below space (20h)
     JB READ_TEXT_LOOP
+    
+    CMP AL, 20H                 ; Ignore control characters below space (20h)
+    JB READ_TEXT_LOOP
+
+    CMP AL, ' '               
+    JE TEXT_CHAR_OK
+    CMP AL, 127                 
+    JA TEXT_CHAR_BAD
+    XOR BX, BX
+    MOV BL, AL
+    SHL BX, 1
+    CMP MORSE_CODE[BX], 0       
+    JE TEXT_CHAR_BAD 
+    
+TEXT_CHAR_OK:
+
+    CMP [TEXT_INPUT_LEN], 60    ; Bound check
+    JAE TEXT_BUFFER_FULL
 
     CMP [TEXT_INPUT_LEN], 60    ; Bound check
     JAE TEXT_BUFFER_FULL
@@ -1280,6 +1196,15 @@ TEXT_BUFFER_FULL:
     MOV [HAS_ERROR], 1
     JMP READ_TEXT_LOOP
 
+TEXT_CHAR_BAD:
+    MOV DH, 22
+    MOV DL, 4
+    MOV BL, 0CH
+    LEA SI, T2M_NOT_EXIST
+    CALL PRINT_COLOR_STR
+    MOV [HAS_ERROR], 1
+    JMP READ_TEXT_LOOP            
+            
 TEXT_ENTER_PRESSED:
     CMP [TEXT_INPUT_LEN], 0
     JE TEXT_EMPTY_ERR
@@ -1287,14 +1212,8 @@ TEXT_ENTER_PRESSED:
     MOV SI, [TEXT_INPUT_LEN]
     MOV TEXT_INPUT_BUF[SI], 0   ; Null terminate
     CALL CLEAR_ERR_IF_NEEDED
-
-    POP ES
-    POP SI
-    POP DI
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    
+    LOAD_STATE
     RET
 
 TEXT_EMPTY_ERR:
@@ -1308,13 +1227,8 @@ TEXT_EMPTY_ERR:
 READ_TEXT_INPUT ENDP   
 
 TRANSLATE_TEXT_BUFFER PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    PUSH SI
-    PUSH DI
     
+    SAVE_STATE    
     MOV [MORSE_OUTPUT_LEN], 0       
     MOV [CHAR_COUNT], 0
     MOV [WORD_COUNT], 0
@@ -1434,27 +1348,22 @@ TEXT_TRANSLATE_DONE:
 TEXT_OUTPUT_EMPTY:
     MOV BYTE PTR [DI], 0        ; Null terminate string
     
-    POP DI
-    POP SI
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
 TRANSLATE_TEXT_BUFFER ENDP 
 
 DISPLAY_T2M_RESULT PROC
-    PUSH AX
-    PUSH BX
-    PUSH DX
-    PUSH SI
+    SAVE_STATE
 
     ; Print converted morse string
     MOV DH, 13
     MOV DL, 13
-    MOV BL, 1Bh
+    MOV BL, 1Bh   
+    MOV AL, MORSE_OUTPUT_BUF[62]    ; save the byte
+    MOV MORSE_OUTPUT_BUF[62], 0     ; cut the display at 62
     LEA SI, MORSE_OUTPUT_BUF
-    CALL PRINT_COLOR_STR      
+    CALL PRINT_COLOR_STR
+    MOV MORSE_OUTPUT_BUF[62], AL          
     
     ; Print stats
     MOV AX, [CHAR_COUNT]
@@ -1481,10 +1390,7 @@ DISPLAY_T2M_RESULT PROC
     MOV BL, 1BH
     CALL PRINT_NUMBER
 
-    POP SI
-    POP DX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
 DISPLAY_T2M_RESULT ENDP
 
@@ -1495,11 +1401,7 @@ DISPLAY_T2M_RESULT ENDP
 ; at specific timing intervals to simulate an LED.
 ; =============================================================================
 VISUALIZE_MORSE PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    PUSH SI
+    SAVE_STATE
 
     LEA SI, MORSE_OUTPUT_BUF    ; Load the translated buffer
 
@@ -1523,7 +1425,7 @@ DO_DOT:
     CALL DRAW_GREEN_BLOCK
     MOV BX, 3                   ; Delay multiplier for green LED ON (Dot length)
     CALL DELAY
-    CALL DRAW_BLUE_BLOCK
+    CALL DRAW_BLACK_BLOCK
     MOV BX, 10                  ; Delay multiplier for LED OFF (Inter-symbol gap)
     CALL DELAY
     JMP NEXT_CHAR
@@ -1532,7 +1434,7 @@ DO_DASH:
     CALL DRAW_GREEN_BLOCK
     MOV BX, 15                  ; Delay multiplier for green LED ON (Dash length)
     CALL DELAY
-    CALL DRAW_BLUE_BLOCK
+    CALL DRAW_BLACK_BLOCK
     MOV BX, 10                  ; Delay multiplier for LED OFF (Inter-symbol gap)
     CALL DELAY
     JMP NEXT_CHAR
@@ -1552,23 +1454,16 @@ NEXT_CHAR:
     JMP VISUAL_LOOP
 
 VISUAL_DONE:
-    CALL DRAW_BLUE_BLOCK        ; Guarantee block resets to blue when finished
-    POP SI
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    CALL DRAW_BLACK_BLOCK        ; Guarantee block resets to blue when finished
+    LOAD_STATE
     RET
 VISUALIZE_MORSE ENDP
 
 DRAW_GREEN_BLOCK PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
     
-    MOV DH, 13                  ; Row 13 (Inside the Morse Output box)
-    MOV DL, 65                  ; Column 65 (Far right side)
+    SAVE_STATE    
+    MOV DH, 5                  ; Row 13 (Inside the Morse Output box)
+    MOV DL, 37                  ; Column 65 (Far right side)
     CALL SET_CURSOR
     
     MOV AH, 09h                 ; BIOS Write Character and Attribute
@@ -1578,35 +1473,28 @@ DRAW_GREEN_BLOCK PROC
     MOV CX, 6                   ; Draw a block 6 characters wide
     INT 10h
     
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
 DRAW_GREEN_BLOCK ENDP
 
-DRAW_BLUE_BLOCK PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
+DRAW_BLACK_BLOCK PROC
+    SAVE_STATE
     
-    MOV DH, 13
-    MOV DL, 65
+    MOV DH, 5
+    MOV DL, 37
     CALL SET_CURSOR
     
     MOV AH, 09h
     MOV AL, 20h
     MOV BH, 00h
-    MOV BL, 19h                 ; 19h: Default UI Blue background to "hide" the block
+    MOV BL, 00h                 ; 19h: Default UI Blue background to "hide" the block
     MOV CX, 6
     INT 10h
     
-    POP DX
-    POP CX
-    POP BX
-    POP AX
+    LOAD_STATE
     RET
-DRAW_BLUE_BLOCK ENDP
+DRAW_BLACK_BLOCK ENDP  
+
+
 
 END MAIN
