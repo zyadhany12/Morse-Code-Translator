@@ -23,4 +23,14 @@ Each ASCII character (`0–127`) maps directly to a 16-bit word pointer in `MORS
 * Unmapped characters hold `0`, allowing instant validation during typing (`READ_TEXT_INPUT`) and translation (`TRANSLATE_TEXT_BUFFER`).
 * Multiple consecutive spaces or trailing spaces are collapsed using `IN_WORD_FLAG` so they never produce `//` or a dangling `/`.
 
-### 2. Morse-to-Text: O(L) Heap-Indexed Binary Tree (`MORSE_TREE
+### 2. Morse-to-Text: O(L) Heap-Indexed Binary Tree (`MORSE_TREE`)
+Decoding uses a 256-byte array representing a binary tree rooted at index `1`:
+* **Dot (`.`):** Moves to the left child (`BX = BX × 2` via `SHL BX, 1`).
+* **Dash (`-`):** Moves to the right child (`BX = BX × 2 + 1` via `SHL BX, 1` + `INC BX`).
+* **Bounds Safety:** Any sequence whose index exceeds `255` is clamped to `255` (which holds `0`), safely resolving to the invalid-character fallback (`*`) without out-of-bounds memory access.
+
+### 3. Direct VGA Text Memory (`0B800h`)
+The 80×25 text screen is addressed directly at segment `0B800h`, where each cell occupies 2 bytes (low byte = ASCII character, high byte = color attribute):
+
+```text
+Byte Offset = (Row × 160) + (Column × 2)
